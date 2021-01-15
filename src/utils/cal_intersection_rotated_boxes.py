@@ -11,7 +11,9 @@ Refer from # https://stackoverflow.com/questions/44797713/calculate-the-area-of-
 """
 
 import torch
-
+import cv2
+import numpy as np
+from shapely.geometry import Polygon
 
 class Line:
     # ax + by + c = 0
@@ -55,20 +57,24 @@ def intersection_area(rect1, rect2):
 
     # Loop over the edges of the second rectangle
     roll_rect2 = torch.roll(rect2, -1, dims=0)
-    for p, q in zip(rect2, roll_rect2):
+    roll_rect2second = torch.roll(roll_rect2, -1, dims=0)
+
+    for p, q in zip(roll_rect2, roll_rect2second):
         if len(intersection) <= 2:
             break  # No intersection
 
         line = Line(p, q)
-
         # Any point p with line(p) <= 0 is on the "inside" (or on the boundary),
         # any point p with line(p) > 0 is on the "outside".
         # Loop over the edges of the intersection polygon,
         # and determine which part is inside and which is outside.
         new_intersection = []
         line_values = line.cal_values(intersection)
+
         roll_intersection = torch.roll(intersection, -1, dims=0)
+
         roll_line_values = torch.roll(line_values, -1, dims=0)
+
         for s, t, s_value, t_value in zip(intersection, roll_intersection, line_values, roll_line_values):
             if s_value <= 0:
                 new_intersection.append(s)
@@ -81,7 +87,10 @@ def intersection_area(rect1, rect2):
         if len(new_intersection) > 0:
             intersection = torch.stack(new_intersection)
         else:
-            break
+            for i in range(4):
+                canditorch = torch.tensor([0, 0], device = p.device)
+                new_intersection.append(canditorch)
+            intersection = torch.stack(new_intersection)
 
     # Calculate area
     if len(intersection) <= 2:
@@ -97,10 +106,6 @@ def PolyArea2D(pts):
 
 
 if __name__ == "__main__":
-    import cv2
-    import numpy as np
-    from shapely.geometry import Polygon
-
 
     def cvt_box_2_polygon(box):
         """
@@ -108,11 +113,14 @@ if __name__ == "__main__":
         :return: a shapely.geometry.Polygon object
         """
         # use .buffer(0) to fix a line polygon
+        box.reshape(-1, 2)
         # more infor: https://stackoverflow.com/questions/13062334/polygon-intersection-error-in-shapely-shapely-geos-topologicalerror-the-opera
-        return Polygon([(box[i, 0], box[i, 1]) for i in range(len(box))]).buffer(0)
+        return Polygon(box).buffer(0)
+
 
 
     def get_corners_torch(x, y, w, l, yaw):
+
         device = x.device
         bev_corners = torch.zeros((4, 2), dtype=torch.float, device=device)
         cos_yaw = torch.cos(yaw)
@@ -143,7 +151,7 @@ if __name__ == "__main__":
     img = cv2.resize(img, (img_size, img_size))
 
     box1 = torch.tensor([100, 100, 40, 10, np.pi / 2], dtype=torch.float).cuda()
-    box2 = torch.tensor([100, 100, 40, 20, 0], dtype=torch.float).cuda()
+    box2 = torch.tensor([200, 100, 40, 20, 0], dtype=torch.float).cuda()
 
     box1_conners = get_corners_torch(box1[0], box1[1], box1[2], box1[3], box1[4])
     box1_polygon = cvt_box_2_polygon(box1_conners)
@@ -161,6 +169,7 @@ if __name__ == "__main__":
                                                                                              intersection, iou))
 
     print('intersection from intersection_area(): {}'.format(intersection_area(box1_conners, box2_conners)))
+
 
     img = cv2.polylines(img, [box1_conners.cpu().numpy().astype(np.int)], True, (255, 0, 0), 2)
     img = cv2.polylines(img, [box2_conners.cpu().numpy().astype(np.int)], True, (0, 255, 0), 2)
